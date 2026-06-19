@@ -1,0 +1,6 @@
+{
+  "name": "Click and Shoot Balloon Game",
+  "description": "An interactive, elegant single-page click-and-shoot balloon popping game with multiple modes, cosmetic shop, audio effects, and high scores.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

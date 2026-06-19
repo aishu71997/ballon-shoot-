@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>SkyPopper - Offline Balloon Game</title>
+    
+    <!-- PWA & Mobile Web Support -->
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#38bdf8" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="SkyPopper" />
+    
+    <!-- iOS Icons fallback -->
+    <link rel="apple-touch-icon" href="data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220%22 width=%22192%22 height=%22192%22><rect width=%22100%%22 height=%22100%%22 fill=%22%2338bdf8%22/><text x=%2250%%22 y=%2255%%22 font-size=%22110%22 text-anchor=%22middle%22 dominant-baseline=%22middle%22>🎈</text></svg>" />
+  </head>
+  <body class="overflow-hidden bg-slate-950 select-none">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+
+    <!-- Offline Service Worker Registration -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js')
+            .then((reg) => {
+              console.log('SkyPopper ServiceWorker registration successful with scope: ', reg.scope);
+            })
+            .catch((err) => {
+              console.error('SkyPopper ServiceWorker registration failed: ', err);
+            });
+        });
+      }
+    </script>
+  </body>
+</html>
+
