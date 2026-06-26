@@ -98,6 +98,10 @@ export default function App() {
   // Audio system status synchronization
   const [isMuted, setIsMuted] = useState<boolean>(() => sounds.isMuted());
 
+  // Dynamic Weather Engine state
+  const [weather, setWeather] = useState<'clear' | 'rainy' | 'snowy'>('clear');
+  const [weatherNotification, setWeatherNotification] = useState<string | null>(null);
+
   // Set Local Volume mute status
   const toggleGlobalMute = () => {
     const nextState = !isMuted;
@@ -131,6 +135,52 @@ export default function App() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [gameState]);
+
+  // Weather cycling effect: shifts weather status every 25s when isPlaying
+  useEffect(() => {
+    if (gameState !== 'playing') {
+      // Revert, reset, and clean up weather state on game end/pause
+      setWeather('clear');
+      setWeatherNotification(null);
+      return;
+    }
+
+    const weathers: ('clear' | 'rainy' | 'snowy')[] = ['clear', 'rainy', 'snowy'];
+
+    const triggerRandomWeatherChange = () => {
+      setWeather((prevWeather) => {
+        const otherWeathers = weathers.filter(w => w !== prevWeather);
+        // Grab a random alternative weather state
+        const nextWeather = otherWeathers[Math.floor(Math.random() * otherWeathers.length)];
+        
+        let message = '';
+        if (nextWeather === 'clear') {
+          message = '☀️ Clear skies! Normal balloon ascent speed restored.';
+        } else if (nextWeather === 'rainy') {
+          message = '🌧️ Rain storm sweeps in! Saturated atmosphere reduces ascent speeds by 25%.';
+        } else if (nextWeather === 'snowy') {
+          message = '❄️ Freezing Blizzard! Frost reduces ascent speeds by 40% and causes lateral wind drift!';
+        }
+
+        setWeatherNotification(message);
+        sounds.playMilestone();
+
+        // Staggered cleanup layout
+        setTimeout(() => {
+          setWeatherNotification((prev) => prev === message ? null : prev);
+        }, 4500);
+
+        return nextWeather;
+      });
+    };
+
+    // Cycle every 25 seconds
+    const intervalId = setInterval(triggerRandomWeatherChange, 25000);
+
+    return () => {
+      clearInterval(intervalId);
+    };
   }, [gameState]);
 
   // Game start mechanism
@@ -249,7 +299,7 @@ export default function App() {
     <div className={`relative w-full min-h-screen flex flex-col font-sans transition-colors duration-500 overflow-x-hidden ${equippedTheme === 'sky' ? 'text-slate-900' : 'text-white'}`}>
       
       {/* Background with cloud vectors/stars */}
-      <SkyBackground theme={equippedTheme} />
+      <SkyBackground theme={equippedTheme} weather={weather} />
 
       {/* Primary Header with Coin balances and Sounds */}
       <header className="relative w-full max-w-6xl mx-auto px-4 py-4 backdrop-blur-xs flex items-center justify-between z-20 select-none">
@@ -518,27 +568,44 @@ export default function App() {
               className="w-full flex flex-col gap-3"
             >
               {/* Dynamic Game Board and Canvas */}
-              <GameCanvas
-                score={score}
-                lives={lives}
-                gameMode={gameMode}
-                isPlaying={gameState === 'playing'}
-                isPaused={gameState === 'paused'}
-                timeRemaining={timeRemaining}
-                multiplier={multiplier}
-                equippedCrosshair={equippedCrosshair}
-                equippedTheme={equippedTheme}
-                infiniteHearts={infiniteHearts}
-                onAddScore={handleAddScore}
-                onLoseLife={handleLoseLife}
-                onAddLife={handleAddLife}
-                onGameOver={() => {
-                  setGameState('gameover');
-                  sounds.playGameOver();
-                }}
-                onTickTime={handleTickTime}
-                onSetCoins={setSkyCoins}
-              />
+              <div className="relative">
+                <AnimatePresence>
+                  {weatherNotification && (
+                    <motion.div
+                      id="weather-alert-banner"
+                      initial={{ opacity: 0, y: -45, scale: 0.95 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: -20, scale: 0.95 }}
+                      className="absolute top-18 left-4 right-4 mx-auto max-w-md bg-slate-950/95 backdrop-blur-md px-4 py-3 rounded-2xl border border-sky-400/30 shadow-[0_4px_16px_rgba(56,189,248,0.25)] flex items-center justify-center text-center text-white text-xs font-bold leading-relaxed select-none z-45 pointer-events-none"
+                    >
+                      <span className="font-sans font-extrabold text-[11px] tracking-tight">{weatherNotification}</span>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                <GameCanvas
+                  score={score}
+                  lives={lives}
+                  gameMode={gameMode}
+                  isPlaying={gameState === 'playing'}
+                  isPaused={gameState === 'paused'}
+                  timeRemaining={timeRemaining}
+                  multiplier={multiplier}
+                  equippedCrosshair={equippedCrosshair}
+                  equippedTheme={equippedTheme}
+                  infiniteHearts={infiniteHearts}
+                  weather={weather}
+                  onAddScore={handleAddScore}
+                  onLoseLife={handleLoseLife}
+                  onAddLife={handleAddLife}
+                  onGameOver={() => {
+                    setGameState('gameover');
+                    sounds.playGameOver();
+                  }}
+                  onTickTime={handleTickTime}
+                  onSetCoins={setSkyCoins}
+                />
+              </div>
 
               {/* Lower HUD Action bar */}
               <div className="flex justify-between items-center bg-slate-900/90 backdrop-blur-md px-5 py-3 rounded-2xl border border-white/10 shadow-lg text-white font-sans text-xs select-none">

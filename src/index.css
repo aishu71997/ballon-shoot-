@@ -25,6 +25,37 @@
   will-change: transform;
 }
 
+@keyframes rainfall {
+  0% {
+    transform: translateY(-50px) translateX(0);
+  }
+  100% {
+    transform: translateY(110vh) translateX(-40px);
+  }
+}
+
+@keyframes snowfall {
+  0% {
+    transform: translateY(-50px) translateX(0) rotate(0deg);
+  }
+  50% {
+    transform: translateY(50vh) translateX(30px) rotate(180deg);
+  }
+  100% {
+    transform: translateY(110vh) translateX(-10px) rotate(360deg);
+  }
+}
+
+.animate-rain {
+  animation: rainfall linear infinite;
+  will-change: transform;
+}
+
+.animate-snow {
+  animation: snowfall linear infinite;
+  will-change: transform;
+}
+
 @keyframes fade-in {
   from {
     opacity: 0;

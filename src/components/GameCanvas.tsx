@@ -15,6 +15,7 @@ interface GameCanvasProps {
   equippedCrosshair: string; // 'cursor-crosshair' | 'cursor-laser' | 'cursor-wand' | 'cursor-gold'
   equippedTheme: string; // 'sky' | 'sunset' | 'cosmic' | 'emerald'
   infiniteHearts?: boolean;
+  weather?: 'clear' | 'rainy' | 'snowy';
   onAddScore: (points: number) => void;
   onLoseLife: (amount: number) => void;
   onAddLife: () => void;
@@ -63,6 +64,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   equippedCrosshair,
   equippedTheme,
   infiniteHearts = false,
+  weather = 'clear',
   onAddScore,
   onLoseLife,
   onAddLife,
@@ -83,6 +85,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   const floatTextsRef = useRef<FloatText[]>([]);
   const mouseRef = useRef({ x: -100, y: -100, isOver: false, isClicking: false });
   const missRipplesRef = useRef<{ id: string; x: number; y: number; radius: number; maxRadius: number; alpha: number }[]>([]);
+  const blastWavesRef = useRef<{ id: string; x: number; y: number; radius: number; maxRadius: number; alpha: number; color: string }[]>([]);
+  const [blastCharge, setBlastCharge] = useState<number>(0); // 0 to 100%
 
   // Slow motion freeze multiplier
   const freezeTimerRef = useRef<number>(0); // remaining miliseconds
@@ -198,6 +202,11 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   const popBalloon = useCallback((b: Balloon) => {
     if (b.popped) return;
     b.popped = true;
+
+    // Increase active Blast wave weapon charges on pops (except bombs!)
+    if (b.type !== 'bomb') {
+      setBlastCharge((prev) => Math.min(100, prev + 10.0));
+    }
 
     // Trigger physical sparks
     const particleCount = b.type === 'golden' ? 24 : b.type === 'bomb' ? 35 : 12;
@@ -332,9 +341,57 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
+    // Adaptability with mobile screen touch: immediately update position and show active over state
+    mouseRef.current.x = x;
+    mouseRef.current.y = y;
+    mouseRef.current.isOver = true;
     mouseRef.current.isClicking = true;
 
-    // Check pop hit
+    // 1. Plasma Blaster (Blast Weapon) specific logic
+    if (equippedCrosshair === 'cursor-blast') {
+      let hitAny = false;
+      const blastRadius = 90;
+
+      // Add visual expanding blast wave on the canvas
+      blastWavesRef.current.push({
+        id: `${Date.now()}-${Math.random()}`,
+        x,
+        y,
+        radius: 4,
+        maxRadius: blastRadius,
+        alpha: 1.0,
+        color: 'rgb(249, 115, 22)' // vibrant orange
+      });
+
+      sounds.playUpgrade(); // satisfying blast charge-up sound
+
+      // Pop all balloons in range
+      const currentBalloons = balloonsRef.current;
+      for (let i = currentBalloons.length - 1; i >= 0; i--) {
+        const b = currentBalloons[i];
+        if (b.popped) continue;
+
+        const dx = b.x - x;
+        const dy = b.y - y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        if (dist <= blastRadius) {
+          popBalloon(b);
+          hitAny = true;
+        }
+      }
+
+      // Missing breaks multiplier streak
+      if (!hitAny) {
+        if (comboRef.current > 0) {
+          comboRef.current = 0;
+          setComboCount(0);
+        }
+      }
+      return;
+    }
+
+    // 2. Standard Single Target Weapons logic
     let hitAny = false;
     // Iterate from newest/top-most balloon to oldest
     const currentBalloons = balloonsRef.current;
@@ -398,6 +455,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       ctx.clearRect(0, 0, width, height);
 
       if (isPlaying && !isPaused) {
+        // Passive automatic Blast Weapon Charge over time (approx 2.4% per sec)
+        setBlastCharge((prev) => Math.min(100, prev + 0.04));
+
         // Slow mo timer counts ticks
         if (freezeTimerRef.current > 0) {
           freezeTimerRef.current = Math.max(0, freezeTimerRef.current - delta);
@@ -494,10 +554,22 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         if (b.popped) return false;
 
         if (isPlaying && !isPaused) {
+          // Weather speed multipliers
+          let weatherSpeedMult = 1.0;
+          let windDrift = 0;
+
+          if (weather === 'rainy') {
+            weatherSpeedMult = 0.75; // rain resistance slows ascension by 25%
+          } else if (weather === 'snowy') {
+            weatherSpeedMult = 0.60; // blizzard air slows ascension by 40%
+            // Side drift force representing winter breeze vectors
+            windDrift = Math.cos(time * 0.0012 + b.wiggleTime) * 0.42;
+          }
+
           // Slow mo effect speed adjustments
-          const finalSpeedY = b.speedY * (isFrozen() ? 0.35 : 1.0);
+          const finalSpeedY = b.speedY * (isFrozen() ? 0.35 : 1.0) * weatherSpeedMult;
           b.y -= finalSpeedY;
-          b.x += b.speedX;
+          b.x += b.speedX + windDrift;
 
           // Trigonometric lateral swaying/wiggling
           b.wiggleTime += b.wiggleSpeed;
@@ -700,6 +772,43 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         return true;
       });
 
+      // 6b. Giga Plasma blast shockwaves drawing
+      blastWavesRef.current = blastWavesRef.current.filter((w) => {
+        if (isPlaying && !isPaused) {
+          w.radius += isFrozen() ? 1.5 : 4.5;
+          w.alpha = Math.max(0, 1.0 - (w.radius / w.maxRadius));
+        }
+
+        if (w.radius >= w.maxRadius) return false;
+
+        ctx.save();
+        
+        // Draw expanding outer glow ring
+        ctx.strokeStyle = w.color.replace(')', `, ${w.alpha * 0.45})`).replace('rgb', 'rgba').replace('hsl', 'hsla');
+        ctx.lineWidth = 6 * (1.0 - w.radius / w.maxRadius) + 1;
+        ctx.shadowColor = w.color;
+        ctx.shadowBlur = 12 * w.alpha;
+        ctx.beginPath();
+        ctx.arc(w.x, w.y, w.radius, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Draw an inner energy wave ring
+        ctx.strokeStyle = `rgba(255, 255, 255, ${w.alpha * 0.75})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(w.x, w.y, w.radius * 0.82, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Draw subtle shockwave field tint
+        ctx.fillStyle = w.color.replace(')', `, ${w.alpha * 0.08})`).replace('rgb', 'rgba').replace('hsl', 'hsla');
+        ctx.beginPath();
+        ctx.arc(w.x, w.y, w.radius, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.restore();
+        return true;
+      });
+
       // 7. Floating indicator reward numbers
       floatTextsRef.current = floatTextsRef.current.filter((ft) => {
         if (isPlaying && !isPaused) {
@@ -737,6 +846,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         if (equippedCrosshair === 'cursor-laser') crosshairColor = '#f43f5e';
         if (equippedCrosshair === 'cursor-wand') crosshairColor = '#a855f7';
         if (equippedCrosshair === 'cursor-gold') crosshairColor = '#d97706';
+        if (equippedCrosshair === 'cursor-blast') crosshairColor = '#f97316'; // orange plasma color
 
         // DRAW ATMOSPHERIC RETICLE SIGHT LINE FROM BOTTOM
         // This makes it incredibly easy to track the pointer location at all times!
@@ -749,6 +859,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           ? 'rgba(168, 85, 247, 0.15)'
           : equippedCrosshair === 'cursor-gold'
           ? 'rgba(217, 119, 6, 0.15)'
+          : equippedCrosshair === 'cursor-blast'
+          ? 'rgba(249, 115, 22, 0.2)'
           : 'rgba(255, 255, 255, 0.12)';
         ctx.lineWidth = 1.5;
         ctx.setLineDash([4, 8]);
@@ -870,6 +982,56 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           ctx.arc(mx, my, 3.5, 0, Math.PI * 2);
           ctx.fill();
         }
+        else if (equippedCrosshair === 'cursor-blast') {
+          // Energetic Plasma Blaster reticle with radioactive hazard fins and a warm orange outer shield
+          ctx.strokeStyle = '#000000';
+          ctx.lineWidth = 5.0;
+          ctx.beginPath();
+          ctx.arc(mx, my, 22, 0, Math.PI * 2);
+          ctx.stroke();
+
+          ctx.strokeStyle = '#f97316';
+          ctx.lineWidth = 2.5;
+          ctx.beginPath();
+          ctx.arc(mx, my, 22, 0, Math.PI * 2);
+          ctx.stroke();
+
+          // Subtly filled hazard region
+          ctx.fillStyle = 'rgba(249, 115, 22, 0.08)';
+          ctx.beginPath();
+          ctx.arc(mx, my, 22, 0, Math.PI * 2);
+          ctx.fill();
+
+          // 3 radioactive warning fins radiating outwards
+          ctx.strokeStyle = '#000000';
+          ctx.lineWidth = 5.0;
+          ctx.beginPath();
+          for (let angle = 0; angle < Math.PI * 2; angle += (Math.PI * 2) / 3) {
+            ctx.moveTo(mx + Math.cos(angle) * 8, my + Math.sin(angle) * 8);
+            ctx.lineTo(mx + Math.cos(angle) * 20, my + Math.sin(angle) * 20);
+          }
+          ctx.stroke();
+
+          ctx.strokeStyle = '#ea580c';
+          ctx.lineWidth = 2.5;
+          ctx.beginPath();
+          for (let angle = 0; angle < Math.PI * 2; angle += (Math.PI * 2) / 3) {
+            ctx.moveTo(mx + Math.cos(angle) * 9, my + Math.sin(angle) * 9);
+            ctx.lineTo(mx + Math.cos(angle) * 19, my + Math.sin(angle) * 19);
+          }
+          ctx.stroke();
+
+          // Glowing plasma core dot
+          ctx.fillStyle = '#000000';
+          ctx.beginPath();
+          ctx.arc(mx, my, 5.5, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.fillStyle = '#ffedd5';
+          ctx.beginPath();
+          ctx.arc(mx, my, 3.0, 0, Math.PI * 2);
+          ctx.fill();
+        }
         else {
           // Classic pin crosshair dart sight with high-contrast circular outline and guide lines
           // 1. Draw outer black circle
@@ -946,7 +1108,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     return () => {
       cancelAnimationFrame(animId);
     };
-  }, [isPlaying, isPaused, popBalloon, gameMode, score, lives, equippedCrosshair, equippedTheme, isFrozen]);
+  }, [isPlaying, isPaused, popBalloon, gameMode, score, lives, equippedCrosshair, equippedTheme, isFrozen, weather]);
 
   return (
     <motion.div
@@ -963,6 +1125,29 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         
         {/* Left Side Status Badges */}
         <div className="flex flex-wrap gap-2 pointer-events-auto">
+          {/* Weather Status Badge */}
+          <div className="bg-slate-900/95 backdrop-blur-md px-4 py-2 rounded-2xl border border-white/10 flex items-center gap-2 shadow-lg text-xs font-bold leading-none text-white transition-all hover:scale-105">
+            <span className="text-[15px] leading-none">
+              {weather === 'rainy' ? '🌧️' : weather === 'snowy' ? '❄️' : '☀️'}
+            </span>
+            <div>
+              <div className="text-[9px] text-slate-400 uppercase tracking-widest font-bold">Atmosphere</div>
+              <div id="hud-weather-value" className={`text-[11px] font-extrabold mt-0.5 tracking-wide ${
+                weather === 'rainy'
+                  ? 'text-sky-300'
+                  : weather === 'snowy'
+                  ? 'text-cyan-200'
+                  : 'text-amber-300'
+              }`}>
+                {weather === 'rainy'
+                  ? 'RAINY (-25% Speed)'
+                  : weather === 'snowy'
+                  ? 'BLIZZARD (-40% Speed)'
+                  : 'CLEAR (Normal)'}
+              </div>
+            </div>
+          </div>
+
           {/* Points Badge */}
           <div className="bg-slate-900/95 backdrop-blur-md px-4 py-2 rounded-2xl border border-white/10 flex items-center gap-2 shadow-lg select-all text-xs font-bold leading-none text-white transition-transform hover:scale-105">
             <span className="text-yellow-400">🏆</span>
@@ -1184,9 +1369,46 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       )}
 
       {/* Helper instruction tip overlay on startup */}
-      {isPlaying && !isPaused && score === 0 && balloonsRef.current.length === 0 && (
-        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-slate-950/70 backdrop-blur-md px-5 py-2.5 rounded-2xl border border-white/10 text-white/95 text-xs text-center font-medium pointer-events-none animate-bounce z-20 shadow-md">
-          🎯 Aim and click on the floating balloons before they fly away!
+      {isPlaying && !isPaused && (
+        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 pointer-events-none z-20 w-full max-w-md px-4">
+          
+          {/* Dynamic Blast Weapon HUD Overlay Indicator */}
+          {equippedCrosshair === 'cursor-blast' && (
+            <div className="bg-slate-950/80 backdrop-blur-md px-4 py-2.5 rounded-2xl border border-orange-500/40 text-white flex items-center justify-between gap-3 w-full shadow-lg pointer-events-auto">
+              <div className="flex items-center gap-2">
+                <span className="text-lg animate-pulse text-orange-500">💥</span>
+                <div className="text-left">
+                  <span className="block text-[10px] uppercase font-bold text-slate-400 leading-none">Plasma Blast</span>
+                  <span className="text-xs font-extrabold text-orange-300">Ready to fire!</span>
+                </div>
+              </div>
+              
+              {/* Charge Bar indicator */}
+              <div className="flex items-center gap-2 flex-1 max-w-[160px] ml-auto">
+                <div className="h-2.5 w-full bg-slate-800 rounded-full overflow-hidden border border-slate-700">
+                  <div 
+                    className="h-full bg-gradient-to-r from-orange-600 to-amber-400 transition-all duration-150" 
+                    style={{ width: `${blastCharge}%` }}
+                  />
+                </div>
+                <span className="font-mono text-[10px] font-extrabold text-orange-300 w-8 text-right">
+                  {Math.round(blastCharge)}%
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Quick instructions indicator for first-time shooters */}
+          {score === 0 && balloonsRef.current.length === 0 && (
+            <div className="bg-slate-950/70 backdrop-blur-md px-5 py-2.5 rounded-2xl border border-white/10 text-white/95 text-xs text-center font-medium shadow-md animate-bounce">
+              🎯 Tap/Click floating balloons! {equippedCrosshair === 'cursor-blast' && "Plasma shocks pop multiple balloons!"}
+            </div>
+          )}
+
+          {/* Touch compatibility support hint overlay */}
+          <div className="bg-slate-950/50 backdrop-blur-sm px-3 py-1 rounded-full border border-white/5 text-[10px] text-slate-400 font-bold tracking-wide">
+            📱 FULL TOUCH SCREEN & MOBILE COMPATIBLE
+          </div>
         </div>
       )}
     </motion.div>

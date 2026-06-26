@@ -55,6 +55,16 @@ export const SHOP_ITEMS: ShopItem[] = [
     value: 'cursor-gold',
     description: 'Handcrafted pure 24k gold needle. Majestic pops.'
   },
+  {
+    id: 'weapon_blast',
+    name: 'Plasma Blaster',
+    type: 'crosshair',
+    cost: 300,
+    purchased: false,
+    icon: 'Radioactive',
+    value: 'cursor-blast',
+    description: 'Fires a high-energy shockwave popping ALL balloons in a 90px blast radius!'
+  },
 
   // THEMES
   {
@@ -197,6 +207,8 @@ export const ShopPanel: React.FC<ShopPanelProps> = ({
                         <Wand2 className="w-5 h-5" />
                       ) : item.id === 'weapon_laser' ? (
                         <span className="text-red-500 text-lg font-bold">⚡</span>
+                      ) : item.id === 'weapon_blast' ? (
+                        <span className="text-orange-500 text-lg font-bold">💥</span>
                       ) : (
                         <span className="text-sky-400 text-lg">📍</span>
                       )}
